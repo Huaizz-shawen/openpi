@@ -7,6 +7,6 @@ cd /inspire/hdd/project/exploration-topic/public/zzhuai/openpi
 # Add uv to PATH
 export PATH="/inspire/hdd/project/exploration-topic/public/zzhuai/.local/bin:$PATH"
 
-# Run training with debug config
-# Note: wandb_enabled is already False in the 'debug' config definition
-uv run scripts/train.py debug --exp_name debug_final_sh
+# Run training with debug config in offline mode
+export UV_OFFLINE=1
+uv run --offline scripts/train.py debug --exp_name debug_final_sh
