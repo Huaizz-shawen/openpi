@@ -22,10 +22,6 @@ fi
 CONFIG_NAME="pi05_libero_local"
 EXP_NAME="libero_finetune"
 
-# Compute normalization statistics
-echo "Computing normalization statistics..."
-.venv/bin/python scripts/compute_norm_stats.py --config-name $CONFIG_NAME
-
 # Run training
 
 echo "Starting training..."
