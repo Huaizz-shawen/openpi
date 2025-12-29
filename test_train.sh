@@ -19,13 +19,13 @@ if [ ! -d "$DATASET_PATH" ]; then
 fi
 
 # Config name
-CONFIG_NAME="pi05_libero"
+CONFIG_NAME="pi05_libero_local"
 EXP_NAME="libero_test_1x"
 
 # Compute normalization statistics
 echo "Computing normalization statistics..."
-.venv/bin/python scripts/compute_norm_stats.py --config-name $CONFIG_NAME --data.repo_id $DATASET_PATH
+.venv/bin/python scripts/compute_norm_stats.py --config-name $CONFIG_NAME
 
 # Run training test (small number of steps)
 echo "Starting training test..."
-.venv/bin/python scripts/train.py $CONFIG_NAME --exp_name $EXP_NAME --overwrite --num_workers 0 --data.repo_id $DATASET_PATH --fsdp_devices 1 --num_train_steps 50
+.venv/bin/python scripts/train.py $CONFIG_NAME --exp_name $EXP_NAME --overwrite --num_workers 0 --fsdp_devices 1 --num_train_steps 50
