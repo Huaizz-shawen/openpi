@@ -27,5 +27,7 @@ echo "Computing normalization statistics..."
 .venv/bin/python scripts/compute_norm_stats.py --config-name $CONFIG_NAME --data.repo_id $DATASET_PATH
 
 # Run training
+
 echo "Starting training..."
-.venv/bin/python scripts/train.py $CONFIG_NAME --exp_name $EXP_NAME --overwrite --num_workers 0 --data.repo_id $DATASET_PATH
+
+.venv/bin/python scripts/train.py $CONFIG_NAME --exp_name $EXP_NAME --overwrite --num_workers 0 --data.repo_id $DATASET_PATH --fsdp_devices 8
