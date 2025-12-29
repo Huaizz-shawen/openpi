@@ -24,6 +24,10 @@ EXP_NAME="libero_finetune"
 
 # Run training
 
+
+
 echo "Starting training..."
 
-.venv/bin/python scripts/train.py $CONFIG_NAME --exp_name $EXP_NAME --overwrite --num_workers 0 --fsdp_devices 8
+
+
+.venv/bin/python scripts/train.py $CONFIG_NAME --exp_name $EXP_NAME --overwrite --num_workers 64 --fsdp_devices 1

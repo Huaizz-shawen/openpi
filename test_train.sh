@@ -24,4 +24,4 @@ EXP_NAME="libero_test_1x"
 
 # Run training test (small number of steps)
 echo "Starting training test..."
-.venv/bin/python scripts/train.py $CONFIG_NAME --exp_name $EXP_NAME --overwrite --num_workers 0 --fsdp_devices 1 --num_train_steps 50 --batch_size 32
+.venv/bin/python scripts/train.py $CONFIG_NAME --exp_name $EXP_NAME --overwrite --num_workers 64 --fsdp_devices 1 --num_train_steps 50 --batch_size 32
