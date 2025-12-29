@@ -28,4 +28,4 @@ echo "Computing normalization statistics..."
 
 # Run training test (small number of steps)
 echo "Starting training test..."
-.venv/bin/python scripts/train.py $CONFIG_NAME --exp_name $EXP_NAME --overwrite --num_workers 0 --fsdp_devices 1 --num_train_steps 50
+.venv/bin/python scripts/train.py $CONFIG_NAME --exp_name $EXP_NAME --overwrite --num_workers 0 --fsdp_devices 1 --num_train_steps 50 --batch_size 32
