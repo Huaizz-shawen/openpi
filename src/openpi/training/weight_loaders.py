@@ -74,9 +74,15 @@ class PaliGemmaWeightLoader(WeightLoader):
     """
 
     def load(self, params: at.Params) -> at.Params:
-        path = download.maybe_download(
-            "gs://vertex-model-garden-paligemma-us/paligemma/pt_224.npz", gs={"token": "anon"}
-        )
+        # Check for local asset
+        local_path = pathlib.Path(__file__).parent.parent.parent.parent / "assets" / "paligemma_pt_224.npz"
+        if local_path.exists():
+            path = local_path
+        else:
+            path = download.maybe_download(
+                "gs://vertex-model-garden-paligemma-us/paligemma/pt_224.npz", gs={"token": "anon"}
+            )
+        
         with path.open("rb") as f:
             flat_params = dict(np.load(f, allow_pickle=False))
         loaded_params = {"PaliGemma": flax.traverse_util.unflatten_dict(flat_params, sep="/")["params"]}

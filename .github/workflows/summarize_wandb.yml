@@ -1,0 +1,140 @@
+# Summarize offline WandB runs on Bridge runner
+#
+# Triggered by `inspire job report` via workflow_dispatch.
+
+name: Summarize WandB
+run-name: Summarize WandB ${{ inputs.request_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_dir:
+        description: 'Target directory on the shared filesystem (parent of wandb/)'
+        required: true
+        type: string
+      request_id:
+        description: 'Unique request id'
+        required: true
+        type: string
+
+jobs:
+  summarize:
+    runs-on: [self-hosted, qizhi-self-hosted]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    env:
+      TARGET_DIR: ${{ inputs.target_dir }}
+      REQUEST_ID: ${{ inputs.request_id }}
+
+    steps:
+      - name: Parse WandB Logs
+        run: |
+          set -e
+          
+          # Ensure python3 is available
+          if ! command -v python3 &> /dev/null; then
+              echo "python3 could not be found"
+              exit 1
+          fi
+
+          # Install PyYAML if possible
+          pip install pyyaml || echo "PyYAML install failed, continuing..."
+
+          cat << 'EOF' > summarize_script.py
+          import os
+          import json
+          import glob
+          import sys
+          
+          try:
+              import yaml
+          except ImportError:
+              yaml = None
+
+          def load_json(path):
+              try:
+                  with open(path, 'r') as f:
+                      return json.load(f)
+              except Exception:
+                  return {}
+
+          def load_yaml(path):
+              if not yaml:
+                  return {}
+              try:
+                  with open(path, 'r') as f:
+                      return yaml.safe_load(f)
+              except Exception:
+                  return {}
+
+          target_dir = os.environ.get('TARGET_DIR', '.')
+          wandb_root = os.path.join(target_dir, 'wandb')
+          
+          projects = {}
+
+          if os.path.isdir(wandb_root):
+              # Look for offline run directories
+              run_dirs = glob.glob(os.path.join(wandb_root, '*run-*'))
+              
+              for run_dir in run_dirs:
+                  files_dir = os.path.join(run_dir, 'files')
+                  if not os.path.isdir(files_dir):
+                      continue
+                  
+                  metadata_path = os.path.join(files_dir, 'wandb-metadata.json')
+                  summary_path = os.path.join(files_dir, 'wandb-summary.json')
+                  config_path = os.path.join(files_dir, 'config.yaml')
+                  
+                  metadata = load_json(metadata_path)
+                  summary = load_json(summary_path)
+                  config = load_yaml(config_path)
+                  
+                  # Extract relevant fields
+                  # Project name
+                  project = metadata.get('project')
+                  if not project:
+                      # Try to infer from config or args or default to 'uncategorized'
+                      project = 'uncategorized'
+
+                  # Git info
+                  git_info = metadata.get('git', {})
+                  remote = git_info.get('remote', 'unknown')
+                  commit = git_info.get('commit', 'unknown')
+                  # Try to find branch in args or metadata
+                  # Metadata doesn't strictly have branch, but sometimes it's in args
+                  # We will default to commit based checkout
+                  
+                  git_clone_cmd = f"git clone {remote}"
+                  git_checkout_cmd = f"git checkout {commit}"
+                  
+                  # Construct record
+                  record = {
+                      'run_id': os.path.basename(run_dir),
+                      'started_at': metadata.get('startedAt'),
+                      'git_clone': git_clone_cmd,
+                      'git_checkout': git_checkout_cmd,
+                      'summary': summary,
+                      'config': config,
+                      'args': metadata.get('args', [])
+                  }
+                  
+                  if project not in projects:
+                      projects[project] = []
+                  projects[project].append(record)
+
+          with open('summary.json', 'w') as f:
+              json.dump(projects, f, indent=2)
+          
+          print(f"Summarized {sum(len(v) for v in projects.values())} runs into summary.json")
+          EOF
+
+          python3 summarize_script.py
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wandb-summary-${{ env.REQUEST_ID }}
+          path: summary.json
+          retention-days: 1

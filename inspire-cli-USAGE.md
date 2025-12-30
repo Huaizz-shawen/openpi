@@ -28,7 +28,7 @@ These are the essential variables required for most operations.
 | `INSPIRE_TARGET_DIR` | The root directory on the shared filesystem for all Bridge operations (code sync, logs, etc.). | (None) |
 | `INSP_GITHUB_REPO` | The GitHub repository in `owner/repo` format, used for Bridge operations. | (None) |
 | `INSP_GITHUB_TOKEN`| A GitHub Personal Access Token with repository access. You can also use `gh auth token`. | (None) |
-| `UV_PYTHON_INSTALL_DIR` | The directory where Python packages and uv environments are installed, we should use this python in Inspire HPC training command. | (None) |
+| `UV_PYTHON_INSTALL_DIR` | The directory where Python packages and uv environments are installed, we should use this python in Inspire HPC training command, you can source it in your shell script to use uv. | (None) |
 
 
 ## Commands
@@ -85,9 +85,18 @@ To fetch logs from a machine without direct access to the shared filesystem, you
 ### Code Sync
 
 The `inspire sync` command pushes your local branch to GitHub and triggers a workflow to sync the code to the shared filesystem.
+Remember to add and commit all your changes before running this command.
 
 ### Bridge Exec
 
 The `inspire bridge exec` command allows you to run shell commands on the Bridge runner.
+You can use this command to manage files, download packages or checkpoints from internet and check system status of inspire platform directly. 
+Use this command first unless you need to launch a larger training task on GPU nodes.
 
-
+## Training and GPU use
+To launch training jobs on GPU nodes, use the `inspire job create` command.
+I suggest you write the required training command into a bash file, e.g., `train.sh`, and then use the following command to launch the job:
+```bash
+inspire sync
+inspire job create ----command bash $INSPIRE_TARGET_DIR/train.sh
+```
