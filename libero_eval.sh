@@ -74,7 +74,8 @@ fi
 
 # Run Libero client
 # Running libero_spatial task suite
-python examples/libero/main.py --args.task-suite-name libero_spatial
+# Use MUJOCO_GL=glx to avoid EGL errors
+MUJOCO_GL=glx python examples/libero/main.py --args.task-suite-name libero_spatial
 
 EXIT_CODE=$?
 
