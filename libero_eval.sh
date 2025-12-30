@@ -35,6 +35,10 @@ source examples/libero/.venv/bin/activate
 # Reset PYTHONPATH to prevent system packages from interfering
 export PYTHONPATH="$PROJECT_ROOT/third_party/libero"
 
+# Clean LD_LIBRARY_PATH to remove system python 3.10 torch libs which cause conflicts
+# We keep nvidia/cuda paths.
+export LD_LIBRARY_PATH="/usr/local/cuda/compat/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64"
+
 # Setup Libero config to avoid interactive prompt
 export LIBERO_CONFIG_PATH="$HOME/.libero"
 mkdir -p "$LIBERO_CONFIG_PATH"
