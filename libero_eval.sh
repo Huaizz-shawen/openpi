@@ -31,7 +31,9 @@ sleep 60
 echo "Starting Libero evaluation..."
 # Use the Libero venv for the client (Python 3.8)
 source examples/libero/.venv/bin/activate
-export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT/third_party/libero
+
+# Reset PYTHONPATH to prevent system packages from interfering
+export PYTHONPATH="$PROJECT_ROOT/third_party/libero"
 
 # Setup Libero config to avoid interactive prompt
 export LIBERO_CONFIG_PATH="$HOME/.libero"
