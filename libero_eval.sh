@@ -16,10 +16,11 @@ SERVER_LOG="policy_server.log"
 
 echo "Starting policy server..."
 # Use the main venv for the server (Python 3.11)
-.venv/bin/python scripts/serve_policy.py policy:checkpoint \
+# Note: --host and --port are global arguments and must be passed BEFORE the subcommand
+.venv/bin/python scripts/serve_policy.py --host 0.0.0.0 --port 8000 policy:checkpoint \
     --policy.config=$POLICY_CONFIG \
     --policy.dir=$CHECKPOINT_DIR \
-    --host 0.0.0.0 --port 8000 > "$SERVER_LOG" 2>&1 &
+    > "$SERVER_LOG" 2>&1 &
 
 SERVER_PID=$!
 echo "Policy server started with PID $SERVER_PID. Logs at $SERVER_LOG"
