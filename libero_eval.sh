@@ -36,8 +36,13 @@ source examples/libero/.venv/bin/activate
 export PYTHONPATH="$PROJECT_ROOT/third_party/libero"
 
 # Clean LD_LIBRARY_PATH to remove system python 3.10 torch libs which cause conflicts
-# We keep nvidia/cuda paths.
-export LD_LIBRARY_PATH="/usr/local/cuda/compat/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64"
+# We surgically remove the specific paths instead of overwriting everything
+if [ -n "$LD_LIBRARY_PATH" ]; then
+    export LD_LIBRARY_PATH=$(echo $LD_LIBRARY_PATH | sed 's|/usr/local/lib/python3.10/dist-packages/torch/lib:||g')
+    export LD_LIBRARY_PATH=$(echo $LD_LIBRARY_PATH | sed 's|/usr/local/lib/python3.10/dist-packages/torch_tensorrt/lib:||g')
+    # Also remove trailing colon if any
+    export LD_LIBRARY_PATH=${LD_LIBRARY_PATH%:}
+fi
 
 # Setup Libero config to avoid interactive prompt
 export LIBERO_CONFIG_PATH="$HOME/.libero"
