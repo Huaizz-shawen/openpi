@@ -33,6 +33,34 @@ echo "Starting Libero evaluation..."
 source examples/libero/.venv/bin/activate
 export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT/third_party/libero
 
+# Setup Libero config to avoid interactive prompt
+export LIBERO_CONFIG_PATH="$HOME/.libero"
+mkdir -p "$LIBERO_CONFIG_PATH"
+CONFIG_FILE="$LIBERO_CONFIG_PATH/config.yaml"
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Creating default Libero config at $CONFIG_FILE"
+    python3 -c "
+import os
+import yaml
+
+benchmark_root = '$PROJECT_ROOT/third_party/libero/libero/libero'
+config_file = '$CONFIG_FILE'
+
+config = {
+    'benchmark_root': benchmark_root,
+    'bddl_files': os.path.join(benchmark_root, 'bddl_files'),
+    'init_states': os.path.join(benchmark_root, 'init_files'),
+    'datasets': os.path.join(benchmark_root, '../datasets'),
+    'assets': os.path.join(benchmark_root, 'assets'),
+}
+
+with open(config_file, 'w') as f:
+    yaml.dump(config, f)
+print(f'Wrote config to {config_file}')
+"
+fi
+
 # Run Libero client
 # Running libero_spatial task suite
 python examples/libero/main.py --args.task-suite-name libero_spatial
