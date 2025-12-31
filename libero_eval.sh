@@ -75,8 +75,12 @@ fi
 
 # Run Libero client
 # Running libero_spatial task suite
-# Use MUJOCO_GL=glx to avoid EGL errors
-MUJOCO_GL=glx python examples/libero/main.py --args.task-suite-name libero_spatial
+# Use MUJOCO_GL=egl for headless rendering
+export MUJOCO_GL=egl
+export LIBGL_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri
+export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libstdc++.so.6
+
+python examples/libero/main.py --args.task-suite-name libero_spatial --host 127.0.0.1
 
 EXIT_CODE=$?
 
