@@ -71,11 +71,12 @@ fi
 
 # Run Libero client
 # Running libero_goal task suite
+# Use 1 trial per task for debugging
 export MUJOCO_GL=egl
 export LIBGL_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri
 export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libstdc++.so.6
 
-python examples/libero/main.py --args.task-suite-name libero_goal --args.host 127.0.0.1
+python examples/libero/main.py --args.task-suite-name libero_goal --args.host 127.0.0.1 --args.num-trials-per-task 1
 
 EXIT_CODE=$?
 
