@@ -19,15 +19,21 @@ if [ ! -d "$DATASET_PATH" ]; then
 fi
 
 # Config name
-CONFIG_NAME="pi05_libero_local"
-EXP_NAME="libero_finetune"
+CONFIG_NAME="pi05_libero_plus"
+EXP_NAME="libero_finetune_plus"
+
+# Compute normalization statistics
+# Since we reuse the dataset, we might already have stats. 
+# But for a new config name, openpi might look in a different place?
+# Actually, LeRobotLiberoDataConfig uses `assets_dir/repo_id`.
+# With `pi05_libero_plus`, assets_dir is `assets/pi05_libero_plus`.
+# So we need to compute stats for this new config or copy them.
+# Recomputing is safer to ensure correct path.
+echo "Computing normalization statistics..."
+.venv/bin/python scripts/compute_norm_stats.py --config-name $CONFIG_NAME
 
 # Run training
 
-
-
 echo "Starting training..."
 
-
-
-.venv/bin/python scripts/train.py $CONFIG_NAME --exp_name $EXP_NAME --overwrite --num_workers 64 --fsdp_devices 1
+.venv/bin/python scripts/train.py $CONFIG_NAME --exp_name $EXP_NAME --overwrite --num_workers 64 --fsdp_devices 8
