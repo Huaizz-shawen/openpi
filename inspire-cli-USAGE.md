@@ -100,3 +100,5 @@ I suggest you write the required training command into a bash file, e.g., `train
 inspire sync
 inspire job create ----command bash $INSPIRE_TARGET_DIR/train.sh
 ```
+
+
