@@ -1,5 +1,6 @@
 import logging
 import os
+import pathlib
 
 import jax
 import numpy as np
@@ -15,7 +16,11 @@ class PaligemmaTokenizer:
     def __init__(self, max_len: int = 48):
         self._max_len = max_len
 
-        path = download.maybe_download("gs://big_vision/paligemma_tokenizer.model", gs={"token": "anon"})
+        local_path = pathlib.Path(__file__).parent.parent.parent.parent / "assets" / "paligemma_tokenizer.model"
+        if local_path.exists():
+            path = local_path
+        else:
+            path = download.maybe_download("gs://big_vision/paligemma_tokenizer.model", gs={"token": "anon"})
         with path.open("rb") as f:
             self._tokenizer = sentencepiece.SentencePieceProcessor(model_proto=f.read())
 

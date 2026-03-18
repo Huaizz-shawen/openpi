@@ -1,5 +1,6 @@
 import dataclasses
 import logging
+import pathlib
 import re
 from typing import Protocol, runtime_checkable
 
@@ -48,8 +49,18 @@ class CheckpointWeightLoader(WeightLoader):
     params_path: str
 
     def load(self, params: at.Params) -> at.Params:
+        # Check for local mirror of GS checkpoints to support offline training
+        path = self.params_path
+        if path.startswith("gs://openpi-assets/checkpoints/"):
+            # e.g. gs://openpi-assets/checkpoints/pi05_base/params -> checkpoints/pi05_base/params
+            rel_path = path.replace("gs://openpi-assets/checkpoints/", "checkpoints/")
+            # Resolve relative to project root (4 levels up from this file)
+            local_mirror = pathlib.Path(__file__).parent.parent.parent.parent / rel_path
+            if local_mirror.exists():
+                path = str(local_mirror)
+
         # We are loading np.ndarray and relying on the training code to properly convert and shard the params.
-        loaded_params = _model.restore_params(download.maybe_download(self.params_path), restore_type=np.ndarray)
+        loaded_params = _model.restore_params(download.maybe_download(path), restore_type=np.ndarray)
         # Add all missing LoRA weights.
         return _merge_params(loaded_params, params, missing_regex=".*lora.*")
 
@@ -63,9 +74,15 @@ class PaliGemmaWeightLoader(WeightLoader):
     """
 
     def load(self, params: at.Params) -> at.Params:
-        path = download.maybe_download(
-            "gs://vertex-model-garden-paligemma-us/paligemma/pt_224.npz", gs={"token": "anon"}
-        )
+        # Check for local asset
+        local_path = pathlib.Path(__file__).parent.parent.parent.parent / "assets" / "paligemma_pt_224.npz"
+        if local_path.exists():
+            path = local_path
+        else:
+            path = download.maybe_download(
+                "gs://vertex-model-garden-paligemma-us/paligemma/pt_224.npz", gs={"token": "anon"}
+            )
+        
         with path.open("rb") as f:
             flat_params = dict(np.load(f, allow_pickle=False))
         loaded_params = {"PaliGemma": flax.traverse_util.unflatten_dict(flat_params, sep="/")["params"]}
