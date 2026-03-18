@@ -1,0 +1,64 @@
+/media/user/B29202FA9202C2B91/openpi/.venv/lib/python3.11/site-packages/torch/cuda/__init__.py:287: UserWarning: 
+NVIDIA GeForce RTX 5090 with CUDA capability sm_120 is not compatible with the current PyTorch installation.
+The current PyTorch install supports CUDA capabilities sm_50 sm_60 sm_70 sm_75 sm_80 sm_86 sm_90.
+If you want to use the NVIDIA GeForce RTX 5090 GPU with PyTorch, please check the instructions at https://pytorch.org/get-started/locally/
+
+  warnings.warn(
+11:04:21.292 [I] Overwriting checkpoint directory: /media/user/B29202FA9202C2B91/openpi/checkpoints/pi0_libero_low_mem_finetune/libero_lora_finetune (997135:train_pytorch.py:333)
+11:04:21.292 [I] Created experiment checkpoint directory: /media/user/B29202FA9202C2B91/openpi/checkpoints/pi0_libero_low_mem_finetune/libero_lora_finetune (997135:train_pytorch.py:340)
+wandb: Currently logged in as: huaizezheng (huaizezheng-jilin-university) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.19.11
+wandb: Run data is saved locally in /media/user/B29202FA9202C2B91/openpi/wandb/run-20251108_110422-hawbsobv
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run libero_lora_finetune
+wandb: ⭐️ View project at https://wandb.ai/huaizezheng-jilin-university/openpi
+wandb: 🚀 View run at https://wandb.ai/huaizezheng-jilin-university/openpi/runs/hawbsobv
+11:04:23.107 [I] Using batch size per GPU: 32 (total batch size across 1 GPUs: 32)                (997135:train_pytorch.py:354)
+11:04:23.164 [I] Downloading gs://openpi-assets/checkpoints/pi0_base/assets/physical-intelligence/libero to /home/user/.cache/openpi/openpi-assets/checkpoints/pi0_base/assets/physical-intelligence/libero (997135:download.py:84)
+11:04:51.283 [I] Norm stats not found in gs://openpi-assets/checkpoints/pi0_base/assets/physical-intelligence/libero, skipping. (997135:config.py:198)
+11:04:51.283 [I] data_config: DataConfig(repo_id='physical-intelligence/libero', asset_id='physical-intelligence/libero', norm_stats=None, repack_transforms=Group(inputs=[RepackTransform(structure={'observation/image': 'image', 'observation/wrist_image': 'wrist_image', 'observation/state': 'state', 'actions': 'actions', 'prompt': 'prompt'})], outputs=()), data_transforms=Group(inputs=(LiberoInputs(model_type=<ModelType.PI0: 'pi0'>), DeltaActions(mask=(True, True, True, True, True, True, False))), outputs=(AbsoluteActions(mask=(True, True, True, True, True, True, False)), LiberoOutputs())), model_transforms=Group(inputs=[InjectDefaultPrompt(prompt=None), ResizeImages(height=224, width=224), TokenizePrompt(tokenizer=<openpi.models.tokenizer.PaligemmaTokenizer object at 0x7800bb4c3710>, discrete_state_input=False), PadStatesAndActions(model_action_dim=32)], outputs=()), use_quantile_norm=False, action_sequence_keys=('actions',), prompt_from_task=True, rlds_data_dir=None, action_space=None, filter_dict_path=None) (997135:data_loader.py:243)
+11:04:51.284 [W] 
+The dataset you requested (physical-intelligence/libero) is in 2.0 format.
+While current version of LeRobot is backward-compatible with it, the version of your dataset still uses global
+stats instead of per-episode stats. Update your dataset stats to the new format using this command:
+```
+python lerobot/common/datasets/v21/convert_dataset_v20_to_v21.py --repo-id=physical-intelligence/libero
+```
+
+If you encounter a problem, contact LeRobot maintainers on [Discord](https://discord.com/invite/s3KuuzsPFb)
+or open an [issue on GitHub](https://github.com/huggingface/lerobot/issues/new/choose).
+ (997135:utils.py:303)
+11:04:51.289 [W] 
+The dataset you requested (physical-intelligence/libero) is in 2.0 format.
+While current version of LeRobot is backward-compatible with it, the version of your dataset still uses global
+stats instead of per-episode stats. Update your dataset stats to the new format using this command:
+```
+python lerobot/common/datasets/v21/convert_dataset_v20_to_v21.py --repo-id=physical-intelligence/libero
+```
+
+If you encounter a problem, contact LeRobot maintainers on [Discord](https://discord.com/invite/s3KuuzsPFb)
+or open an [issue on GitHub](https://github.com/huggingface/lerobot/issues/new/choose).
+ (997135:utils.py:303)
+Traceback (most recent call last):
+  File "/media/user/B29202FA9202C2B91/openpi/scripts/train_pytorch.py", line 632, in <module>
+    main()
+  File "/media/user/B29202FA9202C2B91/openpi/scripts/train_pytorch.py", line 628, in main
+    train_loop(config)
+  File "/media/user/B29202FA9202C2B91/openpi/scripts/train_pytorch.py", line 359, in train_loop
+    loader, data_config = build_datasets(config)
+                          ^^^^^^^^^^^^^^^^^^^^^^
+  File "/media/user/B29202FA9202C2B91/openpi/scripts/train_pytorch.py", line 127, in build_datasets
+    data_loader = _data.create_data_loader(config, framework="pytorch", shuffle=True)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/media/user/B29202FA9202C2B91/openpi/src/openpi/training/data_loader.py", line 256, in create_data_loader
+    return create_torch_data_loader(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/media/user/B29202FA9202C2B91/openpi/src/openpi/training/data_loader.py", line 303, in create_torch_data_loader
+    dataset = transform_dataset(dataset, data_config, skip_norm_stats=skip_norm_stats)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/media/user/B29202FA9202C2B91/openpi/src/openpi/training/data_loader.py", line 177, in transform_dataset
+    raise ValueError(
+ValueError: Normalization stats not found. Make sure to run `scripts/compute_norm_stats.py --config-name=<your-config>`.
+[1;34mwandb[0m: 
+[1;34mwandb[0m: 🚀 View run [33mlibero_lora_finetune[0m at: [34mhttps://wandb.ai/huaizezheng-jilin-university/openpi/runs/hawbsobv[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20251108_110422-hawbsobv/logs[0m
