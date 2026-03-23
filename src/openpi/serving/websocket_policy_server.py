@@ -4,6 +4,7 @@ import logging
 import time
 import traceback
 
+import numpy as np
 from openpi_client import base_policy as _base_policy
 from openpi_client import msgpack_numpy
 import websockets.asyncio.server as _server
@@ -60,6 +61,12 @@ class WebsocketPolicyServer:
                 infer_time = time.monotonic()
                 action = self._policy.infer(obs)
                 infer_time = time.monotonic() - infer_time
+                logger.info(
+                    "Served action to %s: keys=%s action_shape=%s",
+                    websocket.remote_address,
+                    sorted(action.keys()),
+                    np.asarray(action.get("actions")).shape if "actions" in action else None,
+                )
 
                 action["server_timing"] = {
                     "infer_ms": infer_time * 1000,

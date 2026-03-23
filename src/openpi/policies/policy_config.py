@@ -4,6 +4,7 @@ import pathlib
 from typing import Any
 
 import jax.numpy as jnp
+import numpy as np
 
 import openpi.models.model as _model
 import openpi.policies.policy as _policy
@@ -11,6 +12,79 @@ import openpi.shared.download as download
 from openpi.training import checkpoints as _checkpoints
 from openpi.training import config as _config
 import openpi.transforms as transforms
+
+
+class _DotSlashPathAlias:
+    """Populate dot/slash key aliases so repack transforms accept either style."""
+
+    def __call__(self, data):
+        flat = transforms.flatten_dict(data)
+        aliased = dict(flat)
+
+        def _set_alias(dst: str, src: str) -> None:
+            if dst not in aliased and src in aliased:
+                aliased[dst] = aliased[src]
+
+        for key, value in flat.items():
+            if "/" in key:
+                dot_key = key.replace("/", ".")
+                aliased.setdefault(dot_key, value)
+            if "." in key:
+                slash_key = key.replace(".", "/")
+                aliased.setdefault(slash_key, value)
+
+        # Camera/state/task semantic aliases across common client schemas.
+        _set_alias("observation.images.cam_front", "observation.images.cam_high")
+        _set_alias("observation.images.cam_front", "observation/image")
+        _set_alias("observation.images.cam_front", "observation.image")
+        _set_alias("observation.images.cam_front", "observation/exterior_image_1_left")
+        _set_alias("observation.images.cam_front", "observation.exterior_image_1_left")
+        _set_alias("observation.images.cam_left", "observation.images.cam_left_wrist")
+        _set_alias("observation.images.cam_left", "observation/wrist_image")
+        _set_alias("observation.images.cam_left", "observation.wrist_image")
+        _set_alias("observation.images.cam_left", "observation/wrist_image_left")
+        _set_alias("observation.images.cam_left", "observation.wrist_image_left")
+        _set_alias("observation.state", "observation/state")
+        _set_alias("observation.state", "state")
+        _set_alias("task", "prompt")
+
+        # Build 7D state from DROID-style proprio if needed.
+        if "observation.state" not in aliased:
+            joint = aliased.get("observation/joint_position")
+            if joint is None:
+                joint = aliased.get("observation.joint_position")
+            gripper = aliased.get("observation/gripper_position")
+            if gripper is None:
+                gripper = aliased.get("observation.gripper_position")
+            if joint is not None and gripper is not None:
+                aliased["observation.state"] = np.concatenate(
+                    [np.asarray(joint).reshape(-1), np.asarray(gripper).reshape(-1)], axis=0
+                )
+
+        # Backfill slash variants for aliases we just synthesized.
+        for key, value in list(aliased.items()):
+            if "." in key:
+                aliased.setdefault(key.replace(".", "/"), value)
+            if "/" in key:
+                aliased.setdefault(key.replace("/", "."), value)
+
+        return transforms.unflatten_dict(aliased)
+
+
+def _strip_actions_from_repack(group: transforms.Group) -> transforms.Group:
+    """Remove action-label repack entries for inference-time request processing.
+
+    Training repack transforms may include mappings like `actions <- action` to build labels.
+    Inference requests do not include labels, so we drop only the `actions` output key here.
+    """
+    filtered_inputs: list[transforms.DataTransformFn] = []
+    for transform in group.inputs:
+        if isinstance(transform, transforms.RepackTransform):
+            flat = transforms.flatten_dict(transform.structure)
+            flat = {k: v for k, v in flat.items() if k != "actions"}
+            transform = transforms.RepackTransform(transforms.unflatten_dict(flat))
+        filtered_inputs.append(transform)
+    return transforms.Group(inputs=filtered_inputs, outputs=group.outputs)
 
 
 def create_trained_policy(
@@ -57,11 +131,21 @@ def create_trained_policy(
         model = train_config.model.load(_model.restore_params(checkpoint_dir / "params", dtype=jnp.bfloat16))
     data_config = train_config.data.create(train_config.assets_dirs, train_config.model)
     if norm_stats is None:
-        # We are loading the norm stats from the checkpoint instead of the config assets dir to make sure
-        # that the policy is using the same normalization stats as the original training process.
+        # Prefer checkpoint-local norm stats for reproducibility, but fall back to the config-provided
+        # assets source when deploying base checkpoints or stripped checkpoints without assets/.
         if data_config.asset_id is None:
             raise ValueError("Asset id is required to load norm stats.")
-        norm_stats = _checkpoints.load_norm_stats(checkpoint_dir / "assets", data_config.asset_id)
+        try:
+            norm_stats = _checkpoints.load_norm_stats(checkpoint_dir / "assets", data_config.asset_id)
+        except FileNotFoundError:
+            if data_config.norm_stats is None:
+                raise
+            logging.info(
+                "Checkpoint norm stats missing at %s; falling back to config-loaded norm stats for asset_id=%s",
+                checkpoint_dir / "assets",
+                data_config.asset_id,
+            )
+            norm_stats = data_config.norm_stats
 
     # Determine the device to use for PyTorch models
     if is_pytorch and pytorch_device is None:
@@ -72,10 +156,16 @@ def create_trained_policy(
         except ImportError:
             pytorch_device = "cpu"
 
+    data_repack_for_infer = _strip_actions_from_repack(data_config.repack_transforms)
+    merged_repack = transforms.Group(
+        inputs=[*repack_transforms.inputs, _DotSlashPathAlias(), *data_repack_for_infer.inputs],
+        outputs=[*data_repack_for_infer.outputs, *repack_transforms.outputs],
+    )
+
     return _policy.Policy(
         model,
         transforms=[
-            *repack_transforms.inputs,
+            *merged_repack.inputs,
             transforms.InjectDefaultPrompt(default_prompt),
             *data_config.data_transforms.inputs,
             transforms.Normalize(norm_stats, use_quantiles=data_config.use_quantile_norm),
@@ -85,7 +175,7 @@ def create_trained_policy(
             *data_config.model_transforms.outputs,
             transforms.Unnormalize(norm_stats, use_quantiles=data_config.use_quantile_norm),
             *data_config.data_transforms.outputs,
-            *repack_transforms.outputs,
+            *merged_repack.outputs,
         ],
         sample_kwargs=sample_kwargs,
         metadata=train_config.policy_metadata,

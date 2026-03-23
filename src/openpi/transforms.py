@@ -1,7 +1,7 @@
 from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 import re
-from typing import Protocol, TypeAlias, TypeVar, runtime_checkable
+from typing import Any, Protocol, TypeAlias, TypeVar, runtime_checkable
 
 import flax.traverse_util as traverse_util
 import jax
@@ -98,7 +98,126 @@ class RepackTransform(DataTransformFn):
 
     def __call__(self, data: DataDict) -> DataDict:
         flat_item = flatten_dict(data)
-        return jax.tree.map(lambda k: flat_item[k], self.structure)
+        return jax.tree.map(lambda k: _lookup_repack_value(flat_item, k), self.structure)
+
+
+def _lookup_repack_value(flat_item: dict[str, Any], key: str):
+    if key in flat_item:
+        return flat_item[key]
+
+    candidates = [key]
+    if "." in key:
+        candidates.append(key.replace(".", "/"))
+    if "/" in key:
+        candidates.append(key.replace("/", "."))
+
+    alias_map = {
+        "observation.images.cam_front": [
+            "observation/images/cam_front",
+            "observation/image",
+            "observation.image",
+            "observation.images.cam_high",
+            "observation/images/cam_high",
+            "observation/exterior_image_1_left",
+            "observation.exterior_image_1_left",
+            "base_rgb",
+        ],
+        "observation.images.cam_left": [
+            "observation/images/cam_left",
+            "observation/wrist_image",
+            "observation.wrist_image",
+            "observation/wrist_image_left",
+            "observation.wrist_image_left",
+            "observation.images.cam_left_wrist",
+            "observation/images/cam_left_wrist",
+            "wrist_rgb",
+        ],
+        "observation.state": [
+            "observation/state",
+            "state",
+            "observation.joint_position",
+            "observation/joint_position",
+            "joints",
+        ],
+        "prompt": [
+            "task",
+            "prompt",
+        ],
+    }
+    candidates.extend(alias_map.get(key, ()))
+
+    for candidate in candidates:
+        if candidate in flat_item:
+            return flat_item[candidate]
+
+    def _find_by_suffix(options: Sequence[str]) -> Any | None:
+        for suffix in options:
+            for existing_key, value in flat_item.items():
+                if existing_key.endswith(suffix):
+                    return value
+        return None
+
+    def _find_by_token(options: Sequence[str]) -> Any | None:
+        for token in options:
+            for existing_key, value in flat_item.items():
+                if token in existing_key:
+                    return value
+        return None
+
+    if key == "observation.images.cam_front":
+        match = _find_by_suffix(
+            (
+                "cam_front",
+                "images/cam_front",
+                "front_image",
+                "rgb_front",
+                "cam_high",
+                "images/cam_high",
+                "exterior_image_1_left",
+                "image",
+                "base_rgb",
+            )
+        ) or _find_by_token(("cam_front", "front", "cam_high", "exterior_image", "observation/image", "base_rgb"))
+        if match is not None:
+            return match
+
+    if key == "observation.images.cam_left":
+        match = _find_by_suffix(
+            (
+                "cam_left",
+                "images/cam_left",
+                "wrist_image",
+                "wrist_image_left",
+                "cam_left_wrist",
+                "left_wrist",
+                "rgb_wrist",
+                "wrist_rgb",
+            )
+        ) or _find_by_token(("cam_left", "wrist", "left_wrist", "wrist_image", "wrist_rgb"))
+        if match is not None:
+            return match
+
+    if key == "observation.state":
+        joint = flat_item.get("observation/joint_position")
+        if joint is None:
+            joint = flat_item.get("observation.joint_position")
+        if joint is None:
+            joint = flat_item.get("joints")
+        gripper = flat_item.get("observation/gripper_position")
+        if gripper is None:
+            gripper = flat_item.get("observation.gripper_position")
+        if gripper is None:
+            gripper = flat_item.get("gripper")
+        if joint is not None and gripper is not None:
+            return np.concatenate([np.asarray(joint).reshape(-1), np.asarray(gripper).reshape(-1)], axis=0)
+        match = _find_by_suffix(("observation/state", "observation.state", "state"))
+        if match is not None:
+            return match
+
+    available = ", ".join(sorted(flat_item.keys())[:20])
+    if len(flat_item) > 20:
+        available += ", ..."
+    raise KeyError(f"{key} | available keys: {available}")
 
 
 @dataclasses.dataclass(frozen=True)

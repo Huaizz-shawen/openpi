@@ -26,6 +26,17 @@ def _parse_image(image) -> np.ndarray:
     return image
 
 
+def _get_observation_value(data: dict, key: str):
+    if key in data:
+        return data[key]
+    if key.startswith("observation/") and "observation" in data:
+        nested_key = key.split("/", 1)[1]
+        observation = data["observation"]
+        if isinstance(observation, dict) and nested_key in observation:
+            return observation[nested_key]
+    raise KeyError(key)
+
+
 @dataclasses.dataclass(frozen=True)
 class LiberoInputs(transforms.DataTransformFn):
     """
@@ -49,12 +60,12 @@ class LiberoInputs(transforms.DataTransformFn):
         # and two wrist views (left and right). If your dataset does not have a particular type
         # of image, e.g. wrist images, you can comment it out here and replace it with zeros like we do for the
         # right wrist image below.
-        base_image = _parse_image(data["observation/image"])
-        wrist_image = _parse_image(data["observation/wrist_image"])
+        base_image = _parse_image(_get_observation_value(data, "observation/image"))
+        wrist_image = _parse_image(_get_observation_value(data, "observation/wrist_image"))
 
         # Create inputs dict. Do not change the keys in the dict below.
         inputs = {
-            "state": data["observation/state"],
+            "state": _get_observation_value(data, "observation/state"),
             "image": {
                 "base_0_rgb": base_image,
                 "left_wrist_0_rgb": wrist_image,
