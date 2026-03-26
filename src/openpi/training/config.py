@@ -993,6 +993,31 @@ _CONFIGS = [
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         num_train_steps=4_000,
     ),
+    TrainConfig(
+        name="pi05_ur5e_refexp_10000",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
+        data=LeRobotUR5DataConfig(
+            repo_id="/inspire/hdd/project/exploration-topic/public/zzhuai/data/ur5e_pick_cola_lerobot_video/ur5e_pick_cola_train_video",
+            assets=AssetsConfig(
+                assets_dir="/media/user/B29202FA9202C2B91/openpi/checkpoints/10000/assets",
+                asset_id="ur5e_referring_expression_lerobot_v2_video",
+            ),
+            base_config=DataConfig(prompt_from_task=False),
+            use_delta_transform=True,
+            video_backend="pyav",
+        ),
+        batch_size=16,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=4_000,
+            decay_lr=2e-6,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=4_000,
+    ),
     #
     # Fine-tuning Aloha configs.
     #
