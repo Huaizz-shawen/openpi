@@ -439,6 +439,51 @@ class LeRobotUR5DataConfig(DataConfigFactory):
 
 
 @dataclasses.dataclass(frozen=True)
+class LeRobotUR5FrontLeftDataConfig(DataConfigFactory):
+    """UR5 single-arm dataset in LeRobot format with front and left-camera video streams."""
+
+    use_delta_transform: bool = True
+    video_backend: str = "pyav"
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        repack_transform = _transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "observation/image": "observation.images.cam_front",
+                        "observation/wrist_image": "observation.images.cam_left",
+                        "observation/state": "observation.state",
+                        "actions": "action",
+                        "prompt": "task",
+                    }
+                )
+            ]
+        )
+
+        data_transforms = _transforms.Group(
+            inputs=[libero_policy.LiberoInputs(model_type=model_config.model_type)],
+            outputs=[libero_policy.LiberoOutputs()],
+        )
+
+        if self.use_delta_transform:
+            delta_action_mask = _transforms.make_bool_mask(6, -1)
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+
+        model_transforms = ModelTransformFactory()(model_config)
+
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=repack_transform,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
 class RLDSDroidDataConfig(DataConfigFactory):
     """
     Config for training on DROID, using RLDS data format (for efficient training on larger datasets).
@@ -928,6 +973,31 @@ _CONFIGS = [
                 asset_id="ur5e_pi05",
             ),
             base_config=DataConfig(prompt_from_task=False),
+            use_delta_transform=True,
+            video_backend="pyav",
+        ),
+        batch_size=16,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=4_000,
+            decay_lr=2e-6,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=4_000,
+    ),
+    TrainConfig(
+        name="pi05_ur5e_tabletop_3obj_frontleft_local",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
+        data=LeRobotUR5FrontLeftDataConfig(
+            repo_id="/media/user/B29202FA9202C2B91/openpi/datasets/lerobot/ur5_tabletop_3obj_frontleft_train_video",
+            assets=AssetsConfig(
+                assets_dir="deploy_assets",
+                asset_id="ur5e_pi05",
+            ),
+            base_config=DataConfig(prompt_from_task=True),
             use_delta_transform=True,
             video_backend="pyav",
         ),
