@@ -35,6 +35,40 @@ ModelType: TypeAlias = _model.ModelType
 Filter: TypeAlias = nnx.filterlib.Filter
 
 
+def is_local_repo_id(repo_id: str | None) -> bool:
+    if repo_id is None:
+        return False
+    repo_path = pathlib.Path(repo_id).expanduser()
+    return repo_path.is_absolute() or repo_id.startswith((".", "~")) or repo_path.exists()
+
+
+def default_asset_id(repo_id: str | None) -> str | None:
+    if repo_id is None:
+        return None
+    if is_local_repo_id(repo_id):
+        repo_name = pathlib.Path(repo_id).expanduser().name
+        if not repo_name:
+            raise ValueError(f"Unable to derive asset_id from local repo_id={repo_id!r}")
+        return repo_name
+    return repo_id
+
+
+def resolve_norm_stats_dir(
+    assets_dirs: pathlib.Path,
+    *,
+    repo_id: str | None,
+    asset_id: str | None,
+    assets_dir: str | None = None,
+) -> epath.Path | None:
+    if asset_id is None:
+        return None
+    if assets_dir is not None:
+        return epath.Path(assets_dir) / asset_id
+    if is_local_repo_id(repo_id):
+        return epath.Path(str(pathlib.Path(repo_id).expanduser().resolve()))
+    return epath.Path(assets_dirs) / asset_id
+
+
 @dataclasses.dataclass(frozen=True)
 class AssetsConfig:
     """Determines the location of assets (e.g., norm stats) that will be used to set up the data pipeline.
@@ -182,30 +216,36 @@ class DataConfigFactory(abc.ABC):
 
     def create_base_config(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
         repo_id = self.repo_id if self.repo_id is not tyro.MISSING else None
-        asset_id = self.assets.asset_id or repo_id
-        
+        asset_id = self.assets.asset_id or default_asset_id(repo_id)
+
         # Determine video backend if specified in the config factory, otherwise default to None
         video_backend = getattr(self, "video_backend", None)
+        norm_stats_dir = resolve_norm_stats_dir(
+            assets_dirs,
+            repo_id=repo_id,
+            asset_id=asset_id,
+            assets_dir=self.assets.assets_dir,
+        )
 
         return dataclasses.replace(
             self.base_config or DataConfig(),
             repo_id=repo_id,
             asset_id=asset_id,
-            norm_stats=self._load_norm_stats(epath.Path(self.assets.assets_dir or assets_dirs), asset_id),
+            norm_stats=self._load_norm_stats(norm_stats_dir),
             use_quantile_norm=model_config.model_type != ModelType.PI0,
             video_backend=video_backend,
         )
 
-    def _load_norm_stats(self, assets_dir: epath.Path, asset_id: str | None) -> dict[str, _transforms.NormStats] | None:
-        if asset_id is None:
+    def _load_norm_stats(self, norm_stats_dir: epath.Path | None) -> dict[str, _transforms.NormStats] | None:
+        if norm_stats_dir is None:
             return None
         try:
-            data_assets_dir = str(assets_dir / asset_id)
-            norm_stats = _normalize.load(_download.maybe_download(data_assets_dir))
-            logging.info(f"Loaded norm stats from {data_assets_dir}")
+            norm_stats_dir = str(norm_stats_dir)
+            norm_stats = _normalize.load(_download.maybe_download(norm_stats_dir))
+            logging.info(f"Loaded norm stats from {norm_stats_dir}")
             return norm_stats
         except FileNotFoundError:
-            logging.info(f"Norm stats not found in {data_assets_dir}, skipping.")
+            logging.info(f"Norm stats not found in {norm_stats_dir}, skipping.")
         return None
 
 
@@ -399,6 +439,8 @@ class LeRobotUR5DataConfig(DataConfigFactory):
 
     use_delta_transform: bool = True
     video_backend: str = "pyav"
+    # UR5 LeRobot parquet uses singular action column.
+    action_sequence_keys: Sequence[str] = ("action",)
 
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
@@ -435,14 +477,14 @@ class LeRobotUR5DataConfig(DataConfigFactory):
             repack_transforms=repack_transform,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
         )
 
 
 @dataclasses.dataclass(frozen=True)
-class LeRobotUR5FrontLeftDataConfig(DataConfigFactory):
-    """UR5 single-arm dataset in LeRobot format with front and left-camera video streams."""
+class LeRobotWidowDataConfig(LeRobotLiberoDataConfig):
+    """WidowX coffee-bean LeRobot data with top-camera-only visual input."""
 
-    use_delta_transform: bool = True
     video_backend: str = "pyav"
 
     @override
@@ -451,22 +493,21 @@ class LeRobotUR5FrontLeftDataConfig(DataConfigFactory):
             inputs=[
                 _transforms.RepackTransform(
                     {
-                        "observation/image": "observation.images.cam_front",
-                        "observation/wrist_image": "observation.images.cam_left",
-                        "observation/state": "observation.state",
-                        "actions": "action",
-                        "prompt": "task",
+                        "observation/image": "image",
+                        "observation/state": "state",
+                        "actions": "actions",
+                        "prompt": "prompt",
                     }
                 )
             ]
         )
 
         data_transforms = _transforms.Group(
-            inputs=[libero_policy.LiberoInputs(model_type=model_config.model_type)],
+            inputs=[libero_policy.LiberoTopOnlyInputs(model_type=model_config.model_type)],
             outputs=[libero_policy.LiberoOutputs()],
         )
 
-        if self.use_delta_transform:
+        if self.extra_delta_transform:
             delta_action_mask = _transforms.make_bool_mask(6, -1)
             data_transforms = data_transforms.push(
                 inputs=[_transforms.DeltaActions(delta_action_mask)],
@@ -943,35 +984,6 @@ _CONFIGS = [
         model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
         data=LeRobotUR5DataConfig(
             repo_id="/inspire/hdd/project/exploration-topic/public/zzhuai/data/ur5e_pick_cola_lerobot_video/ur5e_pick_cola_train_video",
-            assets=AssetsConfig(
-                assets_dir="deploy_assets",
-                asset_id="ur5e_pi05",
-            ),
-            base_config=DataConfig(prompt_from_task=False),
-            use_delta_transform=True,
-            video_backend="pyav",
-        ),
-        batch_size=16,
-        lr_schedule=_optimizer.CosineDecaySchedule(
-            warmup_steps=200,
-            peak_lr=2e-5,
-            decay_steps=4_000,
-            decay_lr=2e-6,
-        ),
-        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
-        ema_decay=0.999,
-        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
-        num_train_steps=4_000,
-    ),
-    TrainConfig(
-        name="ur5e_desk_manuplation",
-        model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
-        data=LeRobotUR5DataConfig(
-            repo_id="/inspire/hdd/project/exploration-topic/public/zzhuai/data/ur5e_pick_cola_lerobot_video/ur5e_pick_cola_train_video",
-            assets=AssetsConfig(
-                assets_dir="/media/user/B29202FA9202C2B91/openpi/checkpoints/79999/assets",
-                asset_id="ur5e_pi05",
-            ),
             base_config=DataConfig(prompt_from_task=False),
             use_delta_transform=True,
             video_backend="pyav",
@@ -991,102 +1003,159 @@ _CONFIGS = [
     TrainConfig(
         name="pi05_ur5e_tabletop_3obj_frontleft_local",
         model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
-        data=LeRobotUR5FrontLeftDataConfig(
-            repo_id="/media/user/B29202FA9202C2B91/openpi/datasets/lerobot/ur5_tabletop_3obj_frontleft_train_video",
+        data=LeRobotUR5DataConfig(
+            repo_id="/inspire/hdd/project/exploration-topic/public/zzhuai/openpi/data/ur5_tabletop_3obj_frontleft_train_video",
+            base_config=DataConfig(prompt_from_task=False),
+            use_delta_transform=True,
+            video_backend="pyav",
+        ),
+        batch_size=16,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=40_000,
+            decay_lr=2e-6,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=40_000,
+    ),
+    TrainConfig(
+        name="pi05_ur5e_tabletop_3obj_frontleft_lora_local",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotUR5DataConfig(
+            repo_id="/inspire/hdd/project/exploration-topic/public/zzhuai/openpi/data/ur5_tabletop_3obj_frontleft_train_video",
+            base_config=DataConfig(prompt_from_task=False),
+            use_delta_transform=True,
+            video_backend="pyav",
+        ),
+        batch_size=16,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=40_000,
+            decay_lr=2e-6,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=40_000,
+    ),
+    TrainConfig(
+        name="qsl_train_ur5_pick_place_grounding",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
+        data=LeRobotUR5DataConfig(
+            repo_id="/inspire/hdd/global_user/gongjingjing-25039/lqyin/UR5e_data/data/annotation_pipeline/outputs/lerobot_v2/ur5e_grounding_lerobot_v2_video",
+            base_config=DataConfig(prompt_from_task=False),
+            use_delta_transform=True,
+            video_backend="pyav",
+        ),
+        batch_size=16,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=2_000,
+            peak_lr=2e-5,
+            decay_steps=80_000,
+            decay_lr=2e-6,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=80_000,
+    ),
+    TrainConfig(
+        name="qsl_train_ur5_pick_place_refer",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
+        data=LeRobotUR5DataConfig(
+            repo_id="/inspire/hdd/global_user/gongjingjing-25039/lqyin/UR5e_data/data/annotation_pipeline/outputs/lerobot_v2/ur5e_referring_expression_lerobot_v2_video",
+            base_config=DataConfig(prompt_from_task=False),
+            use_delta_transform=True,
+            video_backend="pyav",
+        ),
+        batch_size=16,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=2_000,
+            peak_lr=2e-5,
+            decay_steps=80_000,
+            decay_lr=2e-6,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=80_000,
+    ),
+    TrainConfig(
+        name="qsl_train_ur5_pick_place_condition",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
+        data=LeRobotUR5DataConfig(
+            repo_id="/inspire/hdd/global_user/gongjingjing-25039/lqyin/UR5e_data/data/annotation_pipeline/outputs/lerobot_v2/ur5e_conditional_lerobot_v2_video",
+            base_config=DataConfig(prompt_from_task=False),
+            use_delta_transform=True,
+            video_backend="pyav",
+        ),
+        batch_size=16,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=2_000,
+            peak_lr=2e-5,
+            decay_steps=80_000,
+            decay_lr=2e-6,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=80_000,
+    ),
+    TrainConfig(
+        name="qsl_train_ur5_pick_place_multistep",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
+        data=LeRobotUR5DataConfig(
+            repo_id="/inspire/hdd/global_user/gongjingjing-25039/lqyin/UR5e_data/data/annotation_pipeline/outputs/lerobot_v2/ur5e_multistep_lerobot_v2_video",
+            base_config=DataConfig(prompt_from_task=False),
+            use_delta_transform=True,
+            video_backend="pyav",
+        ),
+        batch_size=16,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=2_000,
+            peak_lr=2e-5,
+            decay_steps=80_000,
+            decay_lr=2e-6,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=80_000,
+    ),
+    TrainConfig(
+        name="qsl_train_widowx_coffee_bean",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
+        data=LeRobotWidowDataConfig(
+            repo_id="/inspire/hdd/global_user/gongjingjing-25039/lqyin/widowX_dataset/lerobot_2_1/bag",
             assets=AssetsConfig(
-                assets_dir="deploy_assets",
-                asset_id="ur5e_pi05",
+                assets_dir="/inspire/hdd/project/exploration-topic/public/zzhuai/openpi/assets/qsl_train_widowx_coffee_bean",
+                asset_id="widowx_bag",
             ),
             base_config=DataConfig(prompt_from_task=True),
-            use_delta_transform=True,
+            extra_delta_transform=False,
             video_backend="pyav",
         ),
-        batch_size=16,
+        batch_size=256,
         lr_schedule=_optimizer.CosineDecaySchedule(
-            warmup_steps=200,
+            warmup_steps=2_000,
             peak_lr=2e-5,
-            decay_steps=4_000,
+            decay_steps=1_000_000,
             decay_lr=2e-6,
         ),
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         ema_decay=0.999,
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
-        num_train_steps=4_000,
-    ),
-    TrainConfig(
-        name="pi05_base_ur5e",
-        model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
-        data=LeRobotUR5DataConfig(
-            repo_id="/inspire/hdd/project/exploration-topic/public/zzhuai/data/ur5e_pick_cola_lerobot_video/ur5e_pick_cola_train_video",
-            assets=AssetsConfig(
-                assets_dir="deploy_assets",
-                asset_id="ur5e_pi05",
-            ),
-            base_config=DataConfig(prompt_from_task=False),
-            use_delta_transform=True,
-            video_backend="pyav",
-        ),
-        batch_size=16,
-        lr_schedule=_optimizer.CosineDecaySchedule(
-            warmup_steps=200,
-            peak_lr=2e-5,
-            decay_steps=4_000,
-            decay_lr=2e-6,
-        ),
-        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
-        ema_decay=0.999,
-        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
-        num_train_steps=4_000,
-    ),
-    TrainConfig(
-        name="pi05_ur5e_grounding_5000",
-        model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
-        data=LeRobotUR5DataConfig(
-            repo_id="/inspire/hdd/project/exploration-topic/public/zzhuai/data/ur5e_pick_cola_lerobot_video/ur5e_pick_cola_train_video",
-            assets=AssetsConfig(
-                assets_dir="/media/user/B29202FA9202C2B91/openpi/checkpoints/5000/assets",
-                asset_id="ur5e_grounding_lerobot_v2_video",
-            ),
-            base_config=DataConfig(prompt_from_task=False),
-            use_delta_transform=True,
-            video_backend="pyav",
-        ),
-        batch_size=16,
-        lr_schedule=_optimizer.CosineDecaySchedule(
-            warmup_steps=200,
-            peak_lr=2e-5,
-            decay_steps=4_000,
-            decay_lr=2e-6,
-        ),
-        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
-        ema_decay=0.999,
-        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
-        num_train_steps=4_000,
-    ),
-    TrainConfig(
-        name="pi05_ur5e_refexp_10000",
-        model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
-        data=LeRobotUR5DataConfig(
-            repo_id="/inspire/hdd/project/exploration-topic/public/zzhuai/data/ur5e_pick_cola_lerobot_video/ur5e_pick_cola_train_video",
-            assets=AssetsConfig(
-                assets_dir="/media/user/B29202FA9202C2B91/openpi/checkpoints/10000/assets",
-                asset_id="ur5e_referring_expression_lerobot_v2_video",
-            ),
-            base_config=DataConfig(prompt_from_task=False),
-            use_delta_transform=True,
-            video_backend="pyav",
-        ),
-        batch_size=16,
-        lr_schedule=_optimizer.CosineDecaySchedule(
-            warmup_steps=200,
-            peak_lr=2e-5,
-            decay_steps=4_000,
-            decay_lr=2e-6,
-        ),
-        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
-        ema_decay=0.999,
-        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
-        num_train_steps=4_000,
+        num_train_steps=50_000,
     ),
     #
     # Fine-tuning Aloha configs.

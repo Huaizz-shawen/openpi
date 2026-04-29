@@ -1,0 +1,24 @@
+#!/bin/bash
+set -e
+
+cd /inspire/hdd/project/exploration-topic/public/zzhuai/openpi
+
+export LEROBOT_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
+export WANDB_MODE=offline
+
+DATASET_PATH="/inspire/hdd/project/exploration-topic/public/zzhuai/data/ur5e_pick_cola_lerobot_video/ur5e_pick_cola_train_video"
+if [ ! -d "$DATASET_PATH" ]; then
+  echo "Error: Dataset not found at $DATASET_PATH"
+  exit 1
+fi
+if [ ! -f "$DATASET_PATH/norm_stats.json" ]; then
+  echo "Error: norm_stats.json missing at $DATASET_PATH"
+  exit 1
+fi
+
+CONFIG_NAME="pi05_ur5e_pick_cola_local"
+EXP_NAME="ur5e_pick_cola_finetune_8x"
+
+echo "Starting training..."
+.venv/bin/python scripts/train.py $CONFIG_NAME --exp_name $EXP_NAME --overwrite --num_workers 64 --fsdp_devices 8

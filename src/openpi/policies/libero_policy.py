@@ -95,6 +95,39 @@ class LiberoInputs(transforms.DataTransformFn):
 
 
 @dataclasses.dataclass(frozen=True)
+class LiberoTopOnlyInputs(transforms.DataTransformFn):
+    """Variant of Libero inputs that only uses the top camera view."""
+
+    model_type: _model.ModelType
+
+    def __call__(self, data: dict) -> dict:
+        top_image = _parse_image(_get_observation_value(data, "observation/image"))
+        zero_image = np.zeros_like(top_image)
+
+        inputs = {
+            "state": _get_observation_value(data, "observation/state"),
+            "image": {
+                "base_0_rgb": top_image,
+                "left_wrist_0_rgb": zero_image,
+                "right_wrist_0_rgb": zero_image,
+            },
+            "image_mask": {
+                "base_0_rgb": np.True_,
+                "left_wrist_0_rgb": np.False_,
+                "right_wrist_0_rgb": np.False_,
+            },
+        }
+
+        if "actions" in data:
+            inputs["actions"] = data["actions"]
+
+        if "prompt" in data:
+            inputs["prompt"] = data["prompt"]
+
+        return inputs
+
+
+@dataclasses.dataclass(frozen=True)
 class LiberoOutputs(transforms.DataTransformFn):
     """
     This class is used to convert outputs from the model back the the dataset specific format. It is

@@ -5,7 +5,9 @@ will compute the mean and standard deviation of the data in the dataset and save
 to the config assets directory.
 """
 
+import math
 import numpy as np
+import torch
 import tqdm
 import tyro
 
@@ -42,17 +44,33 @@ def create_torch_dataloader(
         ],
     )
     if max_frames is not None and max_frames < len(dataset):
-        num_batches = max_frames // batch_size
+        num_samples = max_frames
         shuffle = True
     else:
-        num_batches = len(dataset) // batch_size
+        num_samples = len(dataset)
         shuffle = False
-    data_loader = _data_loader.TorchDataLoader(
+
+    num_batches = math.ceil(num_samples / batch_size)
+
+    mp_context = None
+    if num_workers > 0:
+        import multiprocessing
+
+        mp_context = multiprocessing.get_context("spawn")
+
+    generator = torch.Generator()
+    generator.manual_seed(0)
+    data_loader = torch.utils.data.DataLoader(
         dataset,
-        local_batch_size=batch_size,
-        num_workers=num_workers,
+        batch_size=batch_size,
         shuffle=shuffle,
-        num_batches=num_batches,
+        num_workers=num_workers,
+        multiprocessing_context=mp_context,
+        persistent_workers=num_workers > 0,
+        collate_fn=_data_loader._collate_fn,
+        worker_init_fn=_data_loader._worker_init_fn,
+        drop_last=False,
+        generator=generator,
     )
     return data_loader, num_batches
 
@@ -108,7 +126,10 @@ def main(config_name: str, max_frames: int | None = None):
 
     norm_stats = {key: stats.get_statistics() for key, stats in stats.items()}
 
-    output_path = config.assets_dirs / data_config.repo_id
+    output_asset_id = data_config.asset_id or _config.default_asset_id(data_config.repo_id)
+    if output_asset_id is None:
+        raise ValueError("Data config must have an asset_id or repo_id")
+    output_path = config.assets_dirs / output_asset_id
     print(f"Writing stats to: {output_path}")
     normalize.save(output_path, norm_stats)
 
